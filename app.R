@@ -1,6 +1,7 @@
 library(rhandsontable)
 library(shiny)
 library(shinydashboard)
+library(shinyjs)
 #library(shinyalert)
 library(plater)
 library(tibble)
@@ -16,8 +17,8 @@ wells_colwise <- lapply(1:12, function(x) {str_c(LETTERS[1:8], x)}) %>% unlist()
 # creates base empty dataframe to view and fill later
 make_dest <- function() {
     dest <- tibble(source_well = wells_colwise, dest_well = wells_colwise,
-                   conc = NA, dna_size = NA, vol1 = NA,
-                   ng = NA, fmoles = NA, vol2 = NA)
+                   conc = NA, dna_size = NA, vol1 = NA, vol2 = NA,
+                   ng = NA, fmoles = NA)
     dest
 }
 
@@ -34,7 +35,7 @@ tab1 <-  fluidRow(
         column(2, selectizeInput('protocol_type', 'Select protocol', 
                                  choices = list('Normalize nanograms' = 'normalize_ng', 
                                                 'Normalize fmoles' = 'normalize_fmoles', 
-                                                'Transfer' = 'transfer'), 
+                                                'Simple transfer' = 'transfer'), 
                                  selected = 'normalize_ng')),
         column(2, uiOutput('target_amount')),
         column(2, numericInput('target_vol', 'Target volume', min = 1, max = 200, value = 10))
@@ -69,6 +70,7 @@ ui <- dashboardPage(
   header = dashboardHeader(title = 'Normalize DNA by concentration or molarity', titleWidth = 800),
   sidebar = dashboardSidebar(disable = T),
   body = dashboardBody(
+   useShinyjs(),
    tabsetPanel(
      tabPanel(title = "Enter samples data", icon = icon("list"), tab1),
      tabPanel(title = "Opentrons script preview", icon = icon('code'), tab2)
@@ -97,13 +99,35 @@ server = function(input, output, session) {
   ### REACTIVES
     protocol <- reactiveValues(rxn_vol = 0, sample_vol = 0, total_fmoles = 0, total_ng = 0)
     
+    # target ng
     hot <- reactive({
       if(!is.null(input$hot)) {
         as_tibble(hot_to_r(input$hot)) %>%
           mutate(
-            #vol1 = input$target_vol,
+            vol1 = case_when(
+              input$protocol_type == 'normalize_ng' ~ input$amount/conc,
+              input$protocol_type == 'normalize_fmoles' ~ input$amount/(conc/((dna_size*617.96) + 36.04) * 1000000),
+              input$protocol_type == 'transfer' ~ vol1,
+              .default = NA
+            )
+          ) %>%
+          mutate(
+            vol1 = case_when(
+              vol1 < 0 ~ 0,
+              (input$protocol_type == 'transfer' & vol1 <= 200) ~ vol1,
+              vol1 > 200 ~ 200,
+              vol1 > input$target_vol ~ input$target_vol,
+              TRUE ~ vol1
+              ),
+            vol2 = case_when(
+              (input$protocol_type == 'transfer' & vol2+vol1 <= 200) ~ vol2,
+              (input$protocol_type == 'transfer' & vol2+vol1 > 200) ~ 200 - vol1,
+              input$target_vol - vol1 < 0 ~ 0,
+              TRUE ~ input$target_vol - vol1
+              ),
             fmoles = (conc/((dna_size*617.96) + 36.04) * 1000000) * vol1,
-            ng = conc*vol1)
+            ng = conc*vol1
+          )
           
       } else {
          example_table
@@ -129,6 +153,7 @@ server = function(input, output, session) {
     })
     
   myvalues <- reactive({
+    
     source_wells <- hot()$source_well %>% str_replace_na(replacement = ' ')
     volume1 <- str_replace_na(hot()$vol1, '0') # replace NA with 0, gDNA
     # water wells is always A1
@@ -152,6 +177,16 @@ server = function(input, output, session) {
       
   ### OBSERVERS
   
+  observe({
+    if(input$protocol_type == 'transfer') {
+      shinyjs::hide('target_vol')
+      shinyjs::hide('target_amount')
+    } else {
+      shinyjs::show('target_vol')
+      shinyjs::show('target_amount')
+    }
+  })
+  
   observeEvent(input$deck, {
       showModal(
         modalDialog(title = 'Opentrons deck preview',
@@ -165,9 +200,9 @@ server = function(input, output, session) {
     
   output$target_amount <- renderUI({
     switch(input$protocol_type,
-           'normalize_ng' = numericInput('id1', 'Target ng per well', min = 1, max = 5000, value = 200),
-           'normalize_fmoles' = numericInput('id2', 'Target fmoles per well', min = 1, max = 5000, value = 20),
-           'transfer' = numericInput('id3', 'Transfer volume', min = 0.5, max = 200, value = 10)
+           'normalize_ng' = numericInput('amount', 'Target ng per well', min = 1, max = 5000, value = 200),
+           'normalize_fmoles' = numericInput('amount', 'Target fmoles per well', min = 1, max = 5000, value = 20)
+           #'transfer' = numericInput('amount', 'Transfer volume', min = 0.5, max = 200, value = 10)
               )
   })
     
@@ -215,7 +250,8 @@ server = function(input, output, session) {
         # depends on protocol
         hot_col('vol1', readOnly = if_else(input$protocol_type == 'transfer', F, T), 
                 type = 'numeric', allowInvalid = F, renderer = renderer() ) %>% # highlight volumes > max
-        
+        hot_col('vol2', readOnly = if_else(input$protocol_type == 'transfer', F, T), 
+                type = 'numeric', allowInvalid = F, renderer = renderer() ) %>% # highlight volumes > max
         hot_col('dna_size', format = '0') %>%
         #hot_cell(1, 3, 'test') %>%
         hot_validate_numeric('conc', min = 1, max = 5000, allowInvalid = T) %>%
