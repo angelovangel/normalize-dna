@@ -31,15 +31,25 @@ tab1 <-  fluidRow(
   box(width = 12, height = 2800, status = "info", solidHeader = FALSE, 
       title = "Noramlize DNA Opentrons protocol", collapsible = F,
       fluidRow(
-        column(12, tags$p('This app can be used to generate a Python script to normalize DNA (by target conc or molarity) or to just transfer liquid from source to destination plate')),
+        column(12, tags$p('This app can be used to generate an OT-2 Python script to normalize DNA (by target conc or molarity) or to just transfer liquid from source to destination plate')),
+        
         column(2, selectizeInput('protocol_type', 'Select protocol', 
                                  choices = list('Normalize nanograms' = 'normalize_ng', 
                                                 'Normalize fmoles' = 'normalize_fmoles', 
                                                 'Simple transfer' = 'transfer'), 
                                  selected = 'normalize_ng')),
         column(2, uiOutput('target_amount')),
-        column(2, numericInput('target_vol', 'Target volume', min = 1, max = 200, value = 10))
+        column(2, numericInput('target_vol', 'Target volume', min = 1, max = 200, value = 10)),
+        column(1),
+        column(2, selectizeInput('left_m', 'Left pipette mount', 
+                                 choices = c('p20_single_gen2', 'p20_multi_gen2'), 
+                                 selected = 'p20_single_gen2')
         ),
+        column(2, selectizeInput('right_m', 'Right pipette mount', 
+                                 choices = c('p20_single_gen2', 'p20_multi_gen2'), 
+                                 selected = 'p20_multi_gen2')
+        )
+      ),
       fluidRow(
         column(2, actionButton('deck', 'Show deck layout', width = '100%', style = 'margin-top:20px')),
         column(3, downloadButton('download_script', 'Opentrons script', width = '100%', style = 'margin-top:20px'),
@@ -64,7 +74,7 @@ tab2 <- fluidRow(
       )
 )
 
-ui <- dashboardPage(
+ui <- dashboardPage(skin = 'yellow',
   #useShinyalert(),
   
   header = dashboardHeader(title = 'Normalize DNA by concentration or molarity', titleWidth = 800),
@@ -114,6 +124,7 @@ server = function(input, output, session) {
           mutate(
             vol1 = case_when(
               vol1 < 0 ~ 0,
+              (vol1 < 0.5 & vol1 > 0) ~ 0.5,
               (input$protocol_type == 'transfer' & vol1 <= 200) ~ vol1,
               vol1 > 200 ~ 200,
               vol1 > input$target_vol ~ input$target_vol,
@@ -138,7 +149,7 @@ server = function(input, output, session) {
     plate <- reactive({
       if(!is.null(input$hot)) {
         df <- hot() %>% 
-          mutate(label = str_c(source_well, "<br>", conc))
+          mutate(label = str_c(source_well, "<br>", round(vol1 + vol2, 0), ' ul'))
         
         plater::view_plate(
           #hot_to_r(input$hot) , 
@@ -171,7 +182,9 @@ server = function(input, output, session) {
                 pattern = 'sourcewells=.*', 
                 replacement = paste0("sourcewells=['", myvalues()[1], "']")) %>%
       str_replace(pattern = 'volume1=.*', replacement = paste0('volume1=[', myvalues()[2], ']')) %>%
-      str_replace(pattern = 'volume2=.*', replacement = paste0('volume2=[', myvalues()[3], ']'))
+      str_replace(pattern = 'volume2=.*', replacement = paste0('volume2=[', myvalues()[3], ']')) %>%
+      str_replace(pattern = 'left_mount =.*', replacement = paste0('left_mount = ', "'", input$left_m, "'")) %>%
+      str_replace(pattern = 'right_mount =.*', replacement = paste0('right_mount = ', "'", input$right_m, "'"))
     })
   
       
@@ -210,7 +223,8 @@ server = function(input, output, session) {
     
     "function(instance, td, row, col, prop, value, cellProperties) {
     Handsontable.renderers.NumericRenderer.apply(this, arguments);
-      
+    tbl = this.HTMLWidgets.widgets[0]
+    
     if (value >= 200 || value <= 0.5) {
     td.style.color = 'red'
       }
@@ -308,7 +322,7 @@ server = function(input, output, session) {
         paste0(format(Sys.time(), "%Y%m%d-%H%M%S"), '-samplesheet.csv')
       },
       content = function(con) {
-        write.csv(hot() %>% select(-c('bc_count', 'mycolor')), con, row.names = F)
+        write.csv(hot(), con, row.names = F)
       }
       )
 }
