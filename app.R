@@ -31,7 +31,10 @@ tab1 <-  fluidRow(
   box(width = 12, height = 2800, status = "info", solidHeader = FALSE, 
       title = "Noramlize DNA Opentrons protocol", collapsible = F,
       fluidRow(
-        column(12, tags$p('This app can be used to generate an OT-2 Python script to normalize DNA (by target conc or molarity) or to just transfer liquid from source to destination plate')),
+        column(12, tags$p('This app generates an OT-2 Python script 
+                          to normalize DNA (by target conc or molarity) or to transfer 
+                          liquid from source to destination plate.')
+               ),
         
         column(2, selectizeInput('protocol_type', 'Select protocol', 
                                  choices = list('Normalize nanograms' = 'normalize_ng', 
@@ -39,7 +42,7 @@ tab1 <-  fluidRow(
                                                 'Simple transfer' = 'transfer'), 
                                  selected = 'normalize_ng')),
         column(2, uiOutput('target_amount')),
-        column(2, numericInput('target_vol', 'Target volume', min = 1, max = 200, value = 10)),
+        column(2, numericInput('target_vol', 'Final volume', min = 1, max = 200, value = 10)),
         column(1),
         column(2, selectizeInput('left_m', 'Left pipette mount', 
                                  choices = c('p20_single_gen2', 'p20_multi_gen2'), 
@@ -58,7 +61,7 @@ tab1 <-  fluidRow(
       ),
       tags$hr(),
       column(5, 
-             tags$p("Source plate - enter sample information here"),
+             tags$p(HTML("Source plate - <b>vol1</b> is DNA (source plate), <b>vol2</b> is water up to final volume")),
              rHandsontableOutput('hot')),
       column(7, 
              tags$p("Reaction plate preview"),
@@ -131,9 +134,9 @@ server = function(input, output, session) {
               TRUE ~ vol1
               ),
             vol2 = case_when(
+              vol2 < 0 ~ 0,
               (input$protocol_type == 'transfer' & vol2+vol1 <= 200) ~ vol2,
               (input$protocol_type == 'transfer' & vol2+vol1 > 200) ~ 200 - vol1,
-              input$target_vol - vol1 < 0 ~ 0,
               TRUE ~ input$target_vol - vol1
               ),
             fmoles = (conc/((dna_size*617.96) + 36.04) * 1000000) * vol1,
