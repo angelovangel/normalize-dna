@@ -28,35 +28,19 @@ example_table$conc = c(120, 80, 35, rep(NA, 93))
 example_table$vol1 = c(12, 8, 35, rep(NA, 93))
 
 tab1 <-  fluidRow(
-  box(width = 12, height = 2800, status = "info", solidHeader = FALSE, 
+  box(width = 12, height = 2800, status = "warning", solidHeader = FALSE, 
       title = "Noramlize DNA Opentrons protocol", collapsible = F,
       fluidRow(
         column(12, tags$p('This app generates an OT-2 Python script 
                           to normalize DNA (by target conc or molarity) or to transfer 
                           liquid from source to destination plate.')
-               ),
-        
-        column(2, selectizeInput('protocol_type', 'Select protocol', 
-                                 choices = list('Normalize nanograms' = 'normalize_ng', 
-                                                'Normalize fmoles' = 'normalize_fmoles', 
-                                                'Simple transfer' = 'transfer'), 
-                                 selected = 'normalize_ng')),
-        column(2, uiOutput('target_amount')),
-        column(2, numericInput('target_vol', 'Final volume', min = 1, max = 200, value = 10)),
-        column(1),
-        column(2, selectizeInput('left_m', 'Left pipette mount', 
-                                 choices = c('p20_single_gen2', 'p20_multi_gen2'), 
-                                 selected = 'p20_single_gen2')
-        ),
-        column(2, selectizeInput('right_m', 'Right pipette mount', 
-                                 choices = c('p20_single_gen2', 'p20_multi_gen2'), 
-                                 selected = 'p20_multi_gen2')
-        )
+               )
       ),
       fluidRow(
-        column(2, actionButton('deck', 'Show deck layout', width = '100%', style = 'margin-top:20px')),
-        column(3, downloadButton('download_script', 'Opentrons script', width = '100%', style = 'margin-top:20px'),
-                  downloadButton('download_samples', 'Sample sheet', width = '100%', style = 'margin-top:20px')
+        #column(2, actionButton('deck', 'Show deck layout', width = '100%', style = 'margin-top:20px')),
+        column(12, downloadButton('download_script', 'Opentrons script', width = '100%', style = 'margin-top:20px'),
+                  downloadButton('download_samples', 'Sample sheet', width = '100%', style = 'margin-top:20px'),
+                  actionButton('deck', 'Show deck layout', style = 'margin-top:20px')
                )
       ),
       tags$hr(),
@@ -72,7 +56,7 @@ tab1 <-  fluidRow(
 )
 
 tab2 <- fluidRow(
-  box(width = 12, status = "info", solidHeader = FALSE, title = "Opentrons protocol preview", collapsible = F,
+  box(width = 12, status = "warning", solidHeader = FALSE, title = "Opentrons protocol preview", collapsible = F,
       verbatimTextOutput('protocol_preview')
       )
 )
@@ -80,8 +64,34 @@ tab2 <- fluidRow(
 ui <- dashboardPage(skin = 'yellow',
   #useShinyalert(),
   
-  header = dashboardHeader(title = 'Normalize DNA by concentration or molarity', titleWidth = 800),
-  sidebar = dashboardSidebar(disable = T),
+  header = dashboardHeader(title = 'Normalize DNA'),
+  sidebar = dashboardSidebar(width = '280px',
+                            selectizeInput('protocol_type', 'Select protocol', 
+                                            choices = list('Normalize nanograms' = 'normalize_ng', 
+                                                           'Normalize fmoles' = 'normalize_fmoles', 
+                                                           'Simple transfer' = 'transfer'), 
+                                            selected = 'normalize_ng'),
+                             uiOutput('target_amount'),
+                             numericInput('target_vol', 'Final volume', min = 1, max = 200, value = 10),
+                             tags$hr(),
+                             selectizeInput('source_plate_type', 'Source plate type', 
+                                            choices = list('Stack of PCR plate and Biorad plate' = 'pcrplate_96_wellplate_200ul',
+                                                           'Stack of PCR strips and Biorad plate' = 'pcrstrip_96_wellplate_200ul',
+                                                           'Biorad hardshell plate' = 'biorad_96_wellplate_200ul_pcr'), 
+                                            selected = 'pcrplate_96_wellplate_200ul'),
+                            selectizeInput('dest_plate_type', 'Target plate type', 
+                                           choices = list('Stack of PCR plate and Biorad plate' = 'pcrplate_96_wellplate_200ul',
+                                                          'Stack of PCR strips and Biorad plate' = 'pcrstrip_96_wellplate_200ul',
+                                                          'Biorad hardshell plate' = 'biorad_96_wellplate_200ul_pcr'), 
+                                           selected = 'pcrplate_96_wellplate_200ul'),
+                            selectizeInput('left_m', 'Left pipette mount', 
+                                           choices = c('p20_single_gen2', 'p20_multi_gen2'), 
+                                           selected = 'p20_single_gen2'),
+                            selectizeInput('right_m', 'Right pipette mount', 
+                                           choices = c('p20_single_gen2', 'p20_multi_gen2'), 
+                                           selected = 'p20_multi_gen2')
+                             ),
+  
   body = dashboardBody(
    useShinyjs(),
    tabsetPanel(
@@ -186,6 +196,8 @@ server = function(input, output, session) {
                 replacement = paste0("sourcewells=['", myvalues()[1], "']")) %>%
       str_replace(pattern = 'volume1=.*', replacement = paste0('volume1=[', myvalues()[2], ']')) %>%
       str_replace(pattern = 'volume2=.*', replacement = paste0('volume2=[', myvalues()[3], ']')) %>%
+      str_replace(pattern = 'source_plate_type = .*', replacement = paste0('source_plate_type = ', "'", input$source_plate_type, "'")) %>%
+      str_replace(pattern = 'dest_plate_type = .*', replacement = paste0('dest_plate_type = ', "'", input$dest_plate_type, "'")) %>%
       str_replace(pattern = 'left_mount =.*', replacement = paste0('left_mount = ', "'", input$left_m, "'")) %>%
       str_replace(pattern = 'right_mount =.*', replacement = paste0('right_mount = ', "'", input$right_m, "'"))
     })
@@ -269,7 +281,7 @@ server = function(input, output, session) {
                 type = 'numeric', allowInvalid = F, renderer = renderer() ) %>% # highlight volumes > max
         hot_col('vol2', readOnly = if_else(input$protocol_type == 'transfer', F, T), 
                 type = 'numeric', allowInvalid = F, renderer = renderer() ) %>% # highlight volumes > max
-        hot_col('dna_size', format = '0') %>%
+        hot_col('dna_size', format = '0', allowInvalid = F) %>%
         #hot_cell(1, 3, 'test') %>%
         hot_validate_numeric('conc', min = 1, max = 5000, allowInvalid = T) %>%
         hot_col('dest_well', readOnly = T, renderer = rendergrey()) %>%
